@@ -19,9 +19,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"text/template"
 	"time"
 
+	"github.com/astaxie/beego/grace"
 	"github.com/astaxie/beego/toolbox"
 	"github.com/astaxie/beego/utils"
 )
@@ -333,7 +335,6 @@ func profIndex(rw http.ResponseWriter, r *http.Request) {
 			tmpl = template.Must(tmpl.Parse(defaultScriptsTpl))
 		}
 		tmpl.Execute(rw, data)
-	} else {
 	}
 }
 
@@ -397,7 +398,7 @@ func taskStatus(rw http.ResponseWriter, req *http.Request) {
 			if err != nil {
 				data["Message"] = []string{"error", fmt.Sprintf("%s", err)}
 			}
-			data["Message"] = []string{"success", fmt.Sprintf("%s run success,Now the Status is %s", taskname, t.GetStatus())}
+			data["Message"] = []string{"success", fmt.Sprintf("%s run success,Now the Status is <br>%s", taskname, t.GetStatus())}
 		} else {
 			data["Message"] = []string{"warning", fmt.Sprintf("there's no task which named: %s", taskname)}
 		}
@@ -410,12 +411,14 @@ func taskStatus(rw http.ResponseWriter, req *http.Request) {
 	var fields = []string{
 		fmt.Sprintf("Task Name"),
 		fmt.Sprintf("Task Spec"),
-		fmt.Sprintf("Task Function"),
+		fmt.Sprintf("Task Status"),
+		fmt.Sprintf("Last Time"),
 		fmt.Sprintf(""),
 	}
 	for tname, tk := range toolbox.AdminTaskList {
 		result = []string{
 			fmt.Sprintf("%s", tname),
+			fmt.Sprintf("%s", tk.GetSpec()),
 			fmt.Sprintf("%s", tk.GetStatus()),
 			fmt.Sprintf("%s", tk.GetPrev().String()),
 		}
@@ -457,8 +460,14 @@ func (admin *adminApp) Run() {
 		http.Handle(p, f)
 	}
 	BeeLogger.Info("Admin server Running on %s", addr)
-	err := http.ListenAndServe(addr, nil)
+
+	var err error
+	if Graceful {
+		err = grace.ListenAndServe(addr, nil)
+	} else {
+		err = http.ListenAndServe(addr, nil)
+	}
 	if err != nil {
-		BeeLogger.Critical("Admin ListenAndServe: ", err)
+		BeeLogger.Critical("Admin ListenAndServe: ", err, fmt.Sprintf("%d", os.Getpid()))
 	}
 }

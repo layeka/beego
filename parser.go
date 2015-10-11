@@ -24,6 +24,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path"
+	"sort"
 	"strings"
 
 	"github.com/astaxie/beego/utils"
@@ -36,7 +37,7 @@ import (
 )
 
 func init() {
-	{{.globalinfo}}
+{{.globalinfo}}
 }
 `
 
@@ -57,7 +58,7 @@ func parserPkg(pkgRealpath, pkgpath string) error {
 	rep := strings.NewReplacer("/", "_", ".", "_")
 	commentFilename = COMMENTFL + rep.Replace(pkgpath) + ".go"
 	if !compareFile(pkgRealpath) {
-		Info(pkgRealpath + " don't has updated")
+		Info(pkgRealpath + " has not changed, not reloading")
 		return nil
 	}
 	genInfoList = make(map[string][]ControllerComments)
@@ -129,7 +130,13 @@ func genRouterCode() {
 	os.Mkdir(path.Join(workPath, "routers"), 0755)
 	Info("generate router from comments")
 	var globalinfo string
-	for k, cList := range genInfoList {
+	sortKey := make([]string, 0)
+	for k, _ := range genInfoList {
+		sortKey = append(sortKey, k)
+	}
+	sort.Strings(sortKey)
+	for _, k := range sortKey {
+		cList := genInfoList[k]
 		for _, c := range cList {
 			allmethod := "nil"
 			if len(c.AllowHTTPMethods) > 0 {

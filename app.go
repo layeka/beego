@@ -19,7 +19,11 @@ import (
 	"net"
 	"net/http"
 	"net/http/fcgi"
+	"os"
 	"time"
+
+	"github.com/astaxie/beego/grace"
+	"github.com/astaxie/beego/utils"
 )
 
 // App defines beego application with a new PatternServeMux.
@@ -59,6 +63,10 @@ func (app *App) Run() {
 			}
 		} else {
 			if HttpPort == 0 {
+				// remove the Socket file before start
+				if utils.FileExists(addr) {
+					os.Remove(addr)
+				}
 				l, err = net.Listen("unix", addr)
 			} else {
 				l, err = net.Listen("tcp", addr)
@@ -69,57 +77,96 @@ func (app *App) Run() {
 			err = fcgi.Serve(l, app.Handlers)
 		}
 	} else {
-		app.Server.Addr = addr
-		app.Server.Handler = app.Handlers
-		app.Server.ReadTimeout = time.Duration(HttpServerTimeOut) * time.Second
-		app.Server.WriteTimeout = time.Duration(HttpServerTimeOut) * time.Second
+		if Graceful {
+			app.Server.Addr = addr
+			app.Server.Handler = app.Handlers
+			app.Server.ReadTimeout = time.Duration(HttpServerTimeOut) * time.Second
+			app.Server.WriteTimeout = time.Duration(HttpServerTimeOut) * time.Second
+			if EnableHttpTLS {
+				go func() {
+					time.Sleep(20 * time.Microsecond)
+					if HttpsPort != 0 {
+						addr = fmt.Sprintf("%s:%d", HttpAddr, HttpsPort)
+						app.Server.Addr = addr
+					}
+					server := grace.NewServer(addr, app.Handlers)
+					server.Server = app.Server
+					err := server.ListenAndServeTLS(HttpCertFile, HttpKeyFile)
+					if err != nil {
+						BeeLogger.Critical("ListenAndServeTLS: ", err, fmt.Sprintf("%d", os.Getpid()))
+						time.Sleep(100 * time.Microsecond)
+						endRunning <- true
+					}
+				}()
+			}
+			if EnableHttpListen {
+				go func() {
+					server := grace.NewServer(addr, app.Handlers)
+					server.Server = app.Server
+					if ListenTCP4 && HttpAddr == "" {
+						server.Network = "tcp4"
+					}
+					err := server.ListenAndServe()
+					if err != nil {
+						BeeLogger.Critical("ListenAndServe: ", err, fmt.Sprintf("%d", os.Getpid()))
+						time.Sleep(100 * time.Microsecond)
+						endRunning <- true
+					}
+				}()
+			}
+		} else {
+			app.Server.Addr = addr
+			app.Server.Handler = app.Handlers
+			app.Server.ReadTimeout = time.Duration(HttpServerTimeOut) * time.Second
+			app.Server.WriteTimeout = time.Duration(HttpServerTimeOut) * time.Second
 
-		if EnableHttpTLS {
-			go func() {
-				time.Sleep(20 * time.Microsecond)
-				if HttpsPort != 0 {
-					app.Server.Addr = fmt.Sprintf("%s:%d", HttpAddr, HttpsPort)
-				}
-				BeeLogger.Info("https server Running on %s", app.Server.Addr)
-				err := app.Server.ListenAndServeTLS(HttpCertFile, HttpKeyFile)
-				if err != nil {
-					BeeLogger.Critical("ListenAndServeTLS: ", err)
-					time.Sleep(100 * time.Microsecond)
-					endRunning <- true
-				}
-			}()
+			if EnableHttpTLS {
+				go func() {
+					time.Sleep(20 * time.Microsecond)
+					if HttpsPort != 0 {
+						app.Server.Addr = fmt.Sprintf("%s:%d", HttpAddr, HttpsPort)
+					}
+					BeeLogger.Info("https server Running on %s", app.Server.Addr)
+					err := app.Server.ListenAndServeTLS(HttpCertFile, HttpKeyFile)
+					if err != nil {
+						BeeLogger.Critical("ListenAndServeTLS: ", err)
+						time.Sleep(100 * time.Microsecond)
+						endRunning <- true
+					}
+				}()
+			}
+
+			if EnableHttpListen {
+				go func() {
+					app.Server.Addr = addr
+					BeeLogger.Info("http server Running on %s", app.Server.Addr)
+					if ListenTCP4 && HttpAddr == "" {
+						ln, err := net.Listen("tcp4", app.Server.Addr)
+						if err != nil {
+							BeeLogger.Critical("ListenAndServe: ", err)
+							time.Sleep(100 * time.Microsecond)
+							endRunning <- true
+							return
+						}
+						err = app.Server.Serve(ln)
+						if err != nil {
+							BeeLogger.Critical("ListenAndServe: ", err)
+							time.Sleep(100 * time.Microsecond)
+							endRunning <- true
+							return
+						}
+					} else {
+						err := app.Server.ListenAndServe()
+						if err != nil {
+							BeeLogger.Critical("ListenAndServe: ", err)
+							time.Sleep(100 * time.Microsecond)
+							endRunning <- true
+						}
+					}
+				}()
+			}
 		}
 
-		if EnableHttpListen {
-			go func() {
-				app.Server.Addr = addr
-				BeeLogger.Info("http server Running on %s", app.Server.Addr)
-				if ListenTCP4 && HttpAddr == "" {
-					ln, err := net.Listen("tcp4", app.Server.Addr)
-					if err != nil {
-						BeeLogger.Critical("ListenAndServe: ", err)
-						time.Sleep(100 * time.Microsecond)
-						endRunning <- true
-						return
-					}
-					err = app.Server.Serve(ln)
-					if err != nil {
-						BeeLogger.Critical("ListenAndServe: ", err)
-						time.Sleep(100 * time.Microsecond)
-						endRunning <- true
-						return
-					}
-				} else {
-					err := app.Server.ListenAndServe()
-					if err != nil {
-						BeeLogger.Critical("ListenAndServe: ", err)
-						time.Sleep(100 * time.Microsecond)
-						endRunning <- true
-					}
-				}
-			}()
-		}
 	}
-
 	<-endRunning
 }

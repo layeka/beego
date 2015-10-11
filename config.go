@@ -81,6 +81,8 @@ var (
 	AppConfigProvider      string // config provider
 	EnableDocs             bool   // enable generate docs & server docs API Swagger
 	RouterCaseSensitive    bool   // router case sensitive default is true
+	AccessLogs             bool   // print access logs, default is false
+	Graceful               bool   // use graceful start the server
 )
 
 type beegoAppConfig struct {
@@ -97,6 +99,10 @@ func newAppConfig(AppConfigProvider, AppConfigPath string) (*beegoAppConfig, err
 }
 
 func (b *beegoAppConfig) Set(key, val string) error {
+	err := b.innerConfig.Set(RunMode+"::"+key, val)
+	if err == nil {
+		return err
+	}
 	return b.innerConfig.Set(key, val)
 }
 
@@ -110,7 +116,7 @@ func (b *beegoAppConfig) String(key string) string {
 
 func (b *beegoAppConfig) Strings(key string) []string {
 	v := b.innerConfig.Strings(RunMode + "::" + key)
-	if len(v) == 0 {
+	if v[0] == "" {
 		return b.innerConfig.Strings(key)
 	}
 	return v
@@ -149,27 +155,51 @@ func (b *beegoAppConfig) Float(key string) (float64, error) {
 }
 
 func (b *beegoAppConfig) DefaultString(key string, defaultval string) string {
-	return b.innerConfig.DefaultString(key, defaultval)
+	v := b.String(key)
+	if v != "" {
+		return v
+	}
+	return defaultval
 }
 
 func (b *beegoAppConfig) DefaultStrings(key string, defaultval []string) []string {
-	return b.innerConfig.DefaultStrings(key, defaultval)
+	v := b.Strings(key)
+	if len(v) != 0 {
+		return v
+	}
+	return defaultval
 }
 
 func (b *beegoAppConfig) DefaultInt(key string, defaultval int) int {
-	return b.innerConfig.DefaultInt(key, defaultval)
+	v, err := b.Int(key)
+	if err == nil {
+		return v
+	}
+	return defaultval
 }
 
 func (b *beegoAppConfig) DefaultInt64(key string, defaultval int64) int64 {
-	return b.innerConfig.DefaultInt64(key, defaultval)
+	v, err := b.Int64(key)
+	if err == nil {
+		return v
+	}
+	return defaultval
 }
 
 func (b *beegoAppConfig) DefaultBool(key string, defaultval bool) bool {
-	return b.innerConfig.DefaultBool(key, defaultval)
+	v, err := b.Bool(key)
+	if err == nil {
+		return v
+	}
+	return defaultval
 }
 
 func (b *beegoAppConfig) DefaultFloat(key string, defaultval float64) float64 {
-	return b.innerConfig.DefaultFloat(key, defaultval)
+	v, err := b.Float(key)
+	if err == nil {
+		return v
+	}
+	return defaultval
 }
 
 func (b *beegoAppConfig) DIY(key string) (interface{}, error) {
@@ -479,6 +509,9 @@ func ParseConfig() (err error) {
 
 	if casesensitive, err := AppConfig.Bool("RouterCaseSensitive"); err == nil {
 		RouterCaseSensitive = casesensitive
+	}
+	if graceful, err := AppConfig.Bool("Graceful"); err == nil {
+		Graceful = graceful
 	}
 	return nil
 }
